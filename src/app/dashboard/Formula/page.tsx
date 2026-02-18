@@ -10,106 +10,180 @@ import {
   FaSignOutAlt,
   FaSearch,
 } from "react-icons/fa";
+import { TrashIcon } from "../../components/icons";
 
 /* ===================== TYPES ===================== */
-type Task = {
+type Stage = {
   id: string;
-  date: string;
-  time: string;
-  name: string;
-  ec: number;
-  ph: number;
-  status: "pending";
+  day: number | "";
+  ec: number | "";
+  ph: number | "";
+};
+
+type Recipe = {
+  id: string;
+  recipeName: string;
+  stages: Stage[];
+  totalDays: number;
 };
 
 export default function DashboardPage() {
   const router = useRouter();
   const pathname = usePathname();
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
 
-  const [isRunning] = useState(false);
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const [startDate, setStartDate] = useState("");
+  const [timeInput, setTimeInput] = useState("");
+  const [times, setTimes] = useState<string[]>([]);
+  const [recipes, setRecipes] = useState<Recipe[]>([]); 
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+    /* ================= LOAD MOCK DATA (แทน GET API) ================= */
+    useEffect(() => {
+      const saved = localStorage.getItem("smartmixer_recipes");
+      if (saved) {
+        setRecipes(JSON.parse(saved));
+      }
+    }, []);
+    /* ================= SAVE MOCK DATA (แทน POST / PUT API) ================= */
+    const persistRecipes = (data: Recipe[]) => {
+      localStorage.setItem("smartmixer_recipes", JSON.stringify(data));
+    };
+
 
   const [form, setForm] = useState({
-    date: "",
-    time: "",
-    name: "",
-    ec: 1.0,
-    ph: 6.0,
+    recipeName: "",
+    stages: [{ id: Date.now().toString(), day: "", ec: "", ph: "" }],
   });
 
-  /* ================= LOAD DATA ================= */
-  const loadTasks = async () => {
-    try {
-      const res = await fetch("http://localhost:5000/main-process");
-      const data = await res.json();
-      setTasks(data);
-    } catch (err) {
-      console.error("Load error:", err);
-    }
+  /* ================= STAGE CONTROL ================= */
+  const addStage = () => {
+    setForm((prev) => ({
+      ...prev,
+      stages: [
+        ...prev.stages,
+        { id: Date.now().toString(), day: "", ec: "", ph: "" },
+      ],
+    }));
   };
 
-  useEffect(() => {
-    loadTasks();
-  }, []);
+  const removeStage = (id: string) => {
+    setForm((prev) => ({
+      ...prev,
+      stages: prev.stages.filter((s) => s.id !== id),
+    }));
+  };
 
-  /* ================= ADD TASK ================= */
-  const addTask = async () => {
-    if (!form.name) return;
+  const updateStage = (
+    id: string,
+    key: keyof Stage,
+    value: number | ""
+  ) => {
+    setForm((prev) => ({
+      ...prev,
+      stages: prev.stages.map((s) =>
+        s.id === id ? { ...s, [key]: value } : s
+      ),
+    }));
+  };
 
-    try {
-      const res = await fetch("http://localhost:5000/main-process", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
+  const totalDays =
+    form.stages.length > 0
+      ? Math.max(
+          ...form.stages.map((s) => (s.day === "" ? 0 : Number(s.day)))
+        )
+      : 0;
 
-      if (!res.ok) throw new Error("Save failed");
+  /* ================= ADD RECIPE ================= */
+  const addRecipe = () => {
+    if (!form.recipeName) return;
 
-      await loadTasks(); // โหลดใหม่จาก DB
-      setOpen(false);
-      setForm({ date: "", time: "", name: "", ec: 1, ph: 6 });
-    } catch (err) {
-      console.error("Add task error:", err);
-    }
+    const newRecipe: Recipe = {
+      id: Date.now().toString(),
+      recipeName: form.recipeName,
+      stages: form.stages,
+      totalDays,
+    };
+
+    setRecipes((prev) => {
+      const updated = [...prev, newRecipe];
+      persistRecipes(updated);
+      return updated;
+    });
+
+
+    setOpen(false);
+    setForm({
+      recipeName: "",
+      stages: [{ id: Date.now().toString(), day: "", ec: "", ph: "" }],
+    });
+  };
+
+  const deleteRecipe = (id: string) => {
+    setRecipes((prev) => {
+    const updated = prev.filter((r) => r.id !== id);
+    persistRecipes(updated);
+    return updated;
+  });
+  };
+
+  const filteredRecipes = recipes.filter((r) =>
+    r.recipeName.toLowerCase().includes(search.toLowerCase())
+    );
+    const addTime = () => {
+    if (!timeInput) return;
+    if (times.includes(timeInput)) return;
+
+    setTimes([...times, timeInput]);
+    setTimeInput("");
+  };
+
+  const removeTime = (t: string) => {
+    setTimes(times.filter((x) => x !== t));
+  };
+
+  const confirmAddToSchedule = () => {
+    if (!selectedRecipe || !startDate || times.length === 0) return;
+
+    const old = JSON.parse(localStorage.getItem("smartmixer_schedule") || "[]");
+
+    const newItem = {
+      id: Date.now(),
+      recipeId: selectedRecipe.id,
+      recipeName: selectedRecipe.recipeName,
+      startDate,
+      times,
+      stages: selectedRecipe.stages,
+      totalDays: selectedRecipe.totalDays,
+    };
+
+    localStorage.setItem(
+      "smartmixer_schedule",
+      JSON.stringify([...old, newItem])
+    );
+
+    setScheduleOpen(false);
+    setTimes([]);
+    setStartDate("");
+
+    router.push("/dashboard/MainProcess"); // ไปหน้าตารางงานหลัก
   };
 
   return (
     <div className="flex min-h-screen bg-[#F4F7FE]">
       {/* ================= SIDEBAR ================= */}
       <aside className="w-64 bg-white px-6 py-6 flex flex-col">
-        <div className="mb-8">
-          <h1 className="mt-4 text-[32px] font-bold text-[#1E2A69]">
-            SMART<span className="text-[#05CD99]">MIXER</span>
-          </h1>
-        </div>
+        <h1 className="mt-4 text-[32px] font-bold text-[#1E2A69]">
+          SMART<span className="text-[#05CD99]">MIXER</span>
+        </h1>
 
-        <nav className="space-y-2">
-          <SidebarItem
-            label="แดชบอร์ด"
-            icon={<FaChartPie />}
-            href="/dashboard"
-            active={pathname === "/dashboard"}
-          />
-          <SidebarItem
-            label="ตารางงานหลัก"
-            icon={<FaListAlt />}
-            href="/dashboard/MainProcess"
-            active={pathname === "/dashboard/MainProcess"}
-          />
-          <SidebarItem
-            label="จัดการสูตรพืช"
-            icon={<FaSeedling />}
-            href="/dashboard/Formula"
-            active={pathname === "/dashboard/Formula"}
-          />
-          <SidebarItem
-            label="ประวัติย้อนหลัง"
-            icon={<FaHistory />}
-            href="/dashboard/history"
-            active={pathname === "/dashboard/history"}
-          />
+        <nav className="space-y-2 mt-8">
+          <SidebarItem label="แดชบอร์ด" icon={<FaChartPie />} href="/dashboard" active={pathname === "/dashboard"} />
+          <SidebarItem label="ตารางงานหลัก" icon={<FaListAlt />} href="/dashboard/MainProcess" active={pathname === "/dashboard/MainProcess"} />
+          <SidebarItem label="จัดการสูตรพืช" icon={<FaSeedling />} href="/dashboard/Formula" active={pathname === "/dashboard/Formula"} />
+          <SidebarItem label="ประวัติย้อนหลัง" icon={<FaHistory />} href="/dashboard/history" active={pathname === "/dashboard/history"} />
         </nav>
 
         <div className="mt-auto">
@@ -123,31 +197,21 @@ export default function DashboardPage() {
       </aside>
 
       {/* ================= MAIN ================= */}
-      <main className="flex-1 p-8 space-y-6">
+      <main className="flex-1 p-8">
         <div className="flex justify-between items-center">
-          <h2 className="text-3xl font-bold text-blue-900">
+          <h2 className="text-3xl font-bold text-blue-900 ml-5 mt-5">
             จัดการสูตรพืช
           </h2>
-
-          <span
-            className={`px-4 py-1 rounded-full text-sm ${
-              isRunning
-                ? "bg-emerald-50 text-emerald-600"
-                : "bg-red-50 text-red-600"
-            }`}
-          >
-            ● {isRunning ? "Online" : "Offline"}
-          </span>
         </div>
 
-        <div className="bg-white rounded-2xl p-6 shadow-sm">
-          <div className="flex justify-between items-start mb-6">
+        <div className="bg-white rounded-2xl p-6 shadow-sm mt-6 hover:shadow-md hover:-translate-y-0.5 transition duration-300">
+          <div className="flex justify-between mb-6">
             <h3 className="font-bold text-blue-900 text-xl">
               รายการสูตรพืช (Plant Recipes)
             </h3>
 
             <div className="flex gap-3">
-              <div className="flex items-center bg-[#F1F4F9] px-4 h-[42px] rounded-xl w-[240px] border border-transparent focus-within:border-emerald-600 transition">
+              <div className="flex items-center bg-[#F1F4F9] px-4 h-[42px] rounded-xl w-[240px]">
                 <FaSearch className="text-slate-400 mr-2" />
                 <input
                   placeholder="ค้นหาสูตร..."
@@ -159,39 +223,78 @@ export default function DashboardPage() {
 
               <button
                 onClick={() => setOpen(true)}
-                className="w-[160px] h-[44px] bg-emerald-500 hover:bg-emerald-600 text-white px-5 py-2 rounded-xl text-sm font-medium transition"
+                className="w-[160px] h-[44px] bg-emerald-500 text-white text-sm font-medium rounded-xl hover:shadow-md hover:-translate-y-1 transition duration-300"
               >
                 ＋ สร้างสูตรพืชใหม่
               </button>
             </div>
           </div>
 
-          <table className="w-full text-sm">
+          {/* ================= TABLE ================= */}
+          <table className="w-full text-sm table-fixed">
             <thead className="border-b text-slate-400">
               <tr>
-                <th className="text-left py-3">วันที่</th>
-                <th className="text-left py-3">เวลา</th>
-                <th className="text-left py-3">ชื่อสูตร</th>
-                <th className="text-left py-3">เป้าหมาย</th>
+                <th className="text-left py-3">ชื่อสูตรพืช</th>
+                <th className="text-left py-3">ระยะเวลา</th>
+                <th className="text-left py-3">จัดการ</th>
               </tr>
             </thead>
+
             <tbody>
-              {tasks.length === 0 && (
+              {filteredRecipes.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="text-center py-10 text-slate-400">
-                    ยังไม่มีรายการในตาราง
+                  <td colSpan={3} className="text-center py-10 text-slate-400">
+                    ยังไม่มีสูตรพืช
                   </td>
                 </tr>
               )}
 
-              {tasks.map((task) => (
-                <tr key={task.id} className="border-b">
-                  <td className="py-3">{task.date}</td>
-                  <td className="py-3">{task.time}</td>
-                  <td className="py-3">{task.name}</td>
-                  <td className="py-3">
-                    EC {task.ec} / pH {task.ph}
+              {filteredRecipes.map((p) => (
+                <tr key={p.id} className="border-b">
+                  <td className="py-4 font-semibold text-[#1E2A69]">
+                    {p.recipeName}
                   </td>
+
+                  <td className="py-4">
+                    <span className="px-3 py-1 bg-emerald-50 text-emerald-600 rounded-lg">
+                      {p.totalDays} วัน
+                    </span>
+                  </td>
+
+                  <td className="py-4">
+                      <div className="flex gap-2">
+                        {/* รายละเอียด */}
+                        <button
+                          onClick={() => {
+                            setSelectedRecipe(p);
+                            setDetailOpen(true);
+                          }}
+                          className="flex font-semibold items-center gap-2 px-4 h-[36px] bg-[#EEF1F7] text-[#1E2A69] rounded-xl hover:bg-[#E3E8F2] transition"
+                        >
+                          <span className="text-xl">👁</span>
+                          รายละเอียด
+                        </button>
+
+                        {/* เพิ่มลงตาราง */}
+                        <button
+                          onClick={() => {
+                            setSelectedRecipe(p);
+                            setScheduleOpen(true);
+                          }}
+                          className="flex font-semibold items-center gap-2 px-4 h-[36px] bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-100 transition"
+                        >
+                          ＋ เพิ่มลงตาราง
+                        </button>
+
+                        {/* ลบ (ของเดิมเก็บไว้) */}
+                        <button
+                          onClick={() => deleteRecipe(p.id)}
+                          className="px-3 h-[36px] bg-red-50 text-red-500 rounded-xl hover:bg-red-100 transition"
+                        >
+                          <TrashIcon className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
                 </tr>
               ))}
             </tbody>
@@ -200,105 +303,264 @@ export default function DashboardPage() {
 
         {/* ================= MODAL ================= */}
         {open && (
-          <div className="fixed inset-0 z-50 bg-black/30 backdrop-blur-sm flex items-center justify-center">
-            <div className="bg-white rounded-[28px] w-full max-w-[560px] px-10 py-9 shadow-[0_25px_70px_rgba(0,0,0,0.15)]">
-              <h3 className="text-center font-semibold text-[22px] text-[#1E2A69] mb-8">
-                เพิ่มงานใหม่ (Manual Add)
+          <div className="fixed inset-0 bg-black/30 flex items-center justify-center">
+            <div className="bg-white rounded-2xl w-full max-w-[600px] p-8 shadow-xl animate-popIn shadow-[0_25px_70px_rgba(0,0,0,0.15)]">
+              <h3 className="text-center text-xl font-semibold text-[#1E2A69] mb-6">
+                สร้างสูตรพืชใหม่ (Custom)
               </h3>
 
-              <div className="grid grid-cols-2 gap-5 mb-5">
-                <div>
-                  <label className="text-sm font-medium text-[#1E2A69] block mb-2">
-                    วันที่
-                  </label>
-                  <input
-                    type="date"
-                    value={form.date}
-                    onChange={(e) =>
-                      setForm({ ...form, date: e.target.value })
-                    }
-                    className="w-full h-[52px] px-4 rounded-xl border border-[#E3E8F2] bg-[#F7F9FC]"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-sm font-medium text-[#1E2A69] block mb-2">
-                    เวลา
-                  </label>
-                  <input
-                    type="time"
-                    value={form.time}
-                    onChange={(e) =>
-                      setForm({ ...form, time: e.target.value })
-                    }
-                    className="w-full h-[52px] px-4 rounded-xl border border-[#E3E8F2] bg-[#F7F9FC]"
-                  />
-                </div>
-              </div>
-
               <div className="mb-5">
-                <label className="text-sm font-medium text-[#1E2A69] block mb-2">
-                  ชื่องาน
+                <label className="text-sm font-medium block mb-2 text-[#1E2A69]">
+                  ชื่อสูตรพืช
                 </label>
                 <input
-                  value={form.name}
+                  placeholder="เช่น ผักสลัด"
+                  value={form.recipeName}
                   onChange={(e) =>
-                    setForm({ ...form, name: e.target.value })
+                    setForm({ ...form, recipeName: e.target.value })
                   }
-                  className="w-full h-[52px] px-4 rounded-xl border border-[#E3E8F2] bg-[#F7F9FC]"
+                  className="w-full h-[48px] px-4 rounded-xl border bg-[#F7F9FC]"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-5 mb-8">
-                <div>
-                  <label className="text-sm font-medium text-[#1E2A69] block mb-2">
-                    Target EC
+              <div className="space-y-3 max-h-[200px] overflow-y-auto">
+                {/* ===== Stage Header ===== */}
+                <div className="flex justify-between items-center mb-2">
+                  <label className="text-sm font-medium text-[#1E2A69]">
+                    ระยะการให้ปุ๋ย (Stages)
                   </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={form.ec}
-                    onChange={(e) =>
-                      setForm({ ...form, ec: +e.target.value })
-                    }
-                    className="w-full h-[52px] px-4 rounded-xl border border-[#E3E8F2] bg-[#F7F9FC]"
-                  />
-                </div>
 
-                <div>
-                  <label className="text-sm font-medium text-[#1E2A69] block mb-2">
-                    Target pH
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={form.ph}
-                    onChange={(e) =>
-                      setForm({ ...form, ph: +e.target.value })
-                    }
-                    className="w-full h-[52px] px-4 rounded-xl border border-[#E3E8F2] bg-[#F7F9FC]"
-                  />
+                  <button
+                    type="button"
+                    onClick={addStage}
+                    className="px-3 py-1 bg-emerald-50 text-emerald-600 rounded-lg text-sm hover:bg-emerald-100 transition"
+                  >
+                    + เพิ่มระยะ
+                  </button>
                 </div>
+                {form.stages.map((s) => (
+                    <div
+                      key={s.id}
+                      className="grid gap-3"
+                      style={{ gridTemplateColumns: "1fr 1fr 1fr 44px" }}
+                    >
+                      {/* Day */}
+                      <div className="flex flex-col">
+                        <label className="text-xs text-slate-500 mb-1">
+                          สิ้นสุดวันที่ (Day)
+                        </label>
+                        <input
+                          type="number"
+                          placeholder="เช่น 15"
+                          value={s.day}
+                          onChange={(e) =>
+                            updateStage(
+                              s.id,
+                              "day",
+                              e.target.value === "" ? "" : Number(e.target.value)
+                            )
+                          }
+                          className="h-[44px] px-3 rounded-xl border bg-[#F7F9FC] w-full"
+                        />
+                      </div>
+
+                      {/* EC */}
+                      <div className="flex flex-col">
+                        <label className="text-xs text-slate-500 mb-1">ค่า EC</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          placeholder="EC"
+                          value={s.ec}
+                          onChange={(e) =>
+                            updateStage(
+                              s.id,
+                              "ec",
+                              e.target.value === "" ? "" : Number(e.target.value)
+                            )
+                          }
+                          className="h-[44px] px-3 rounded-xl border bg-[#F7F9FC] w-full"
+                        />
+                      </div>
+
+                      {/* pH */}
+                      <div className="flex flex-col">
+                        <label className="text-xs text-slate-500 mb-1">ค่า pH</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          placeholder="pH"
+                          value={s.ph}
+                          onChange={(e) =>
+                            updateStage(
+                              s.id,
+                              "ph",
+                              e.target.value === "" ? "" : Number(e.target.value)
+                            )
+                          }
+                          className="h-[44px] px-3 rounded-xl border bg-[#F7F9FC] w-full"
+                        />
+                      </div>
+
+                      {/* Delete */}
+                      <div className="flex items-end">
+                        <button
+                          onClick={() => removeStage(s.id)}
+                          className="bg-red-50 text-red-500 rounded-xl w-[44px] h-[44px] flex items-center justify-center"
+                        >
+                          <TrashIcon className="w-5 h-5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
               </div>
 
-              <div className="flex gap-4">
+              <div className="text-right mt-4 border-t pt-3 text-sm">
+                รวมระยะเวลาปลูก:
+                <span className="text-emerald-600 font-semibold ml-1">
+                  {totalDays}
+                </span>{" "}
+                วัน
+              </div>
+
+              <div className="flex gap-3 mt-6">
                 <button
                   onClick={() => setOpen(false)}
-                  className="flex-1 h-[54px] rounded-xl bg-[#EEF1F7] text-slate-500"
+                  className="flex-1 h-[48px] bg-[#EEF1F7] rounded-xl hover:scale-[1.02] hover:shadow-lg
+                  transition-all duration-200"
                 >
                   ยกเลิก
                 </button>
 
                 <button
-                  onClick={addTask}
-                  className="flex-1 h-[54px] rounded-xl text-white bg-gradient-to-r from-[#59C173] to-[#2D9B73]"
+                  onClick={addRecipe}
+                  className="flex-1 h-[48px] text-white rounded-xl bg-gradient-to-r from-[#59C173] to-[#2D9B73] hover:scale-[1.02] hover:shadow-lg
+                  transition-all duration-200"
                 >
-                  เพิ่มงาน
+                  บันทึกสูตร
                 </button>
               </div>
             </div>
           </div>
-        )}
+          )}
+
+          {/* ================= DETAIL MODAL ================= */}
+      {detailOpen && selectedRecipe && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center">
+          <div className="bg-white rounded-2xl w-full max-w-[520px] p-8 animate-popIn shadow-[0_25px_70px_rgba(0,0,0,0.15)]">
+            <h3 className="text-center text-xl font-semibold text-[#1E2A69] mb-6">
+              รายละเอียดสูตร: {selectedRecipe.recipeName}
+            </h3>
+
+            <div className="bg-[#F4F7FE] rounded-2xl overflow-hidden">
+              <div className="grid grid-cols-3 px-6 py-3 text-sm text-slate-500 font-medium">
+                <div>ระยะ (วัน)</div>
+                <div>ค่า EC</div>
+                <div>ค่า PH</div>
+              </div>
+
+              {selectedRecipe.stages.map((s, index) => {
+                const startDay =
+                  index === 0
+                    ? 1
+                    : Number(selectedRecipe.stages[index - 1].day) + 1;
+
+                return (
+                  <div key={s.id} className="grid grid-cols-3 px-6 py-4 border-t text-[#1E2A69]">
+                    <div>วันที่ {startDay} - {s.day}</div>
+                    <div className="text-emerald-500 font-semibold">{s.ec}</div>
+                    <div>{s.ph}</div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={() => setDetailOpen(false)}
+              className="mt-6 w-full h-[48px] bg-[#E9EDF5] rounded-xl hover:scale-[1.02] hover:shadow-lg
+                  transition-all duration-200"
+            >
+              ปิด
+            </button>
+          </div>
+        </div>
+      )}
+      {scheduleOpen && selectedRecipe && (
+  <div className="fixed inset-0 bg-black/30 flex items-center justify-center">
+    <div className="bg-white rounded-2xl w-full max-w-[520px] p-8 animate-popIn shadow-[0_25px_70px_rgba(0,0,0,0.15)]">
+      <h3 className="text-xl font-semibold text-center text-[#1E2A69] mb-2">
+        เพิ่มลงตารางงานหลัก
+      </h3>
+
+      <p className="text-center text-slate-500 mb-6">
+        คุณกำลังจะเพิ่มสูตร{" "}
+        <span className="text-emerald-600 font-semibold">
+          {selectedRecipe.recipeName}
+        </span>{" "}
+        ลงในตารางงาน
+      </p>
+
+      {/* วันที่เริ่ม */}
+      <label className="text-sm font-medium text-[#1E2A69]">เริ่มปลูกวันที่</label>
+      <input
+        type="date"
+        value={startDate}
+        onChange={(e) => setStartDate(e.target.value)}
+        className="w-full h-[48px] px-4 rounded-xl border bg-[#F7F9FC] mb-5 mt-3"
+      />
+
+      {/* เวลา */}
+      <label className="text-sm font-medium text-[#1E2A69]">กำหนดเวลาทำงานในแต่ละวัน</label>
+
+      <div className="flex gap-3 mt-2 mb-5">
+        <input
+          type="time"
+          value={timeInput}
+          onChange={(e) => setTimeInput(e.target.value)}
+          className="flex-1 h-[48px] px-4 rounded-xl border bg-[#F7F9FC]"
+        />
+
+        <button
+          onClick={addTime}
+          className="px-5 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 transition"
+        >
+          + เพิ่ม
+        </button>
+      </div>
+      {/* แสดงเวลาที่เพิ่ม */}
+          <div className="flex gap-2 mt-4 flex-wrap">
+            {times.map((t) => (
+              <div
+                key={t}
+                className="px-4 py-2 bg-emerald-50 text-emerald-600 rounded-full flex items-center gap-2"
+              >
+                {t}
+                <button onClick={() => removeTime(t)}>×</button>
+              </div>
+            ))}
+          </div>
+
+          {/* ปุ่ม */}
+          <div className="flex gap-3 mt-8">
+            <button
+              onClick={() => setScheduleOpen(false)}
+              className="flex-1 h-[48px] bg-[#EEF1F7] rounded-xl hover:scale-[1.02] hover:shadow-lg
+                  transition-all duration-200"
+            >
+              ยกเลิก
+            </button>
+
+            <button
+              onClick={confirmAddToSchedule}
+              className="flex-1 h-[48px] text-white rounded-xl bg-gradient-to-r from-[#59C173] to-[#2D9B73] hover:scale-[1.02] hover:shadow-lg
+                  transition-all duration-200"
+            >
+              ยืนยัน
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
       </main>
     </div>
   );
@@ -310,13 +572,11 @@ function SidebarItem({ label, icon, href, active = false }: any) {
     <button
       onClick={() => router.push(href)}
       className={`flex items-center gap-3 w-full px-5 py-4 rounded-xl ${
-        active
-          ? "bg-[#05CD99] text-white shadow"
-          : "text-slate-500 hover:bg-slate-100"
+        active ? "bg-[#05CD99] text-white" : "text-slate-500 hover:bg-slate-100"
       }`}
     >
-      <span>{icon}</span>
-      <span>{label}</span>
+      {icon}
+      {label}
     </button>
   );
 }

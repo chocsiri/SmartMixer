@@ -96,21 +96,11 @@ export default function HistoryPage() {
           <h2 className="text-3xl font-bold text-blue-900 ml-5 mb-2 mt-5">
             ประวัติย้อนหลัง
           </h2>
-
-          <span
-            className={`px-4 py-1 rounded-full text-sm ${
-              isRunning
-                ? "bg-emerald-50 text-emerald-600"
-                : "bg-red-50 text-red-600"
-            }`}
-          >
-            ● {isRunning ? "Online" : "Offline"}
-          </span>
         </div>
 
-        <div className="bg-white rounded-2xl p-6 shadow-sm mt-6">
+        <div className="bg-white rounded-2xl p-6 shadow-sm mt-6 hover:shadow-md hover:-translate-y-0.5 transition duration-300">
           <h3 className="font-bold text-blue-900 text-xl mb-6">
-            ประวัติการสั่งงานจากอุปกรณ์
+            ประวัติการทำงาน (History Logs)
           </h3>
 
           <table className="w-full text-sm">
