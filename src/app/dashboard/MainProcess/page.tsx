@@ -29,6 +29,7 @@ export default function MainProcessPage() {
   const [open, setOpen] = useState(false);
 
   const [schedule, setSchedule] = useState<any[]>([]);
+  
 
   useEffect(() => {
     const data = JSON.parse(localStorage.getItem("smartmixer_schedule") || "[]");

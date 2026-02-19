@@ -10,14 +10,22 @@ import {
   FaSignOutAlt,
   FaSearch,
 } from "react-icons/fa";
-import { TrashIcon } from "../../components/icons";
+import { AddIcon, TrashIcon } from "../../components/icons";
+
 
 /* ===================== TYPES ===================== */
-type Stage = {
+type TimeEntry = {
   id: string;
-  day: number | "";
+  time: string;
   ec: number | "";
   ph: number | "";
+};
+
+type Stage = {
+  id: string;
+  startDay: number | "";
+  endDay: number | "";
+  times: TimeEntry[];
 };
 
 type Recipe = {
@@ -26,6 +34,15 @@ type Recipe = {
   stages: Stage[];
   totalDays: number;
 };
+
+/* ===================== HELPERS ===================== */
+const createEmptyTime = (): TimeEntry => ({
+  id: Date.now().toString() + Math.random(),
+  time: "",
+  ec: "",
+  ph: "",
+});
+
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -53,21 +70,40 @@ export default function DashboardPage() {
     };
 
 
-  const [form, setForm] = useState({
-    recipeName: "",
-    stages: [{ id: Date.now().toString(), day: "", ec: "", ph: "" }],
-  });
+  const [form, setForm] = useState<{
+  recipeName: string;
+  stages: Stage[];
+}>({
+  recipeName: "",
+  stages: [
+    {
+      id: Date.now().toString(),
+      startDay: 1,
+      endDay: "",
+      times: [createEmptyTime()],   // ✅ มีแถว แต่ยังว่าง
+    },
+  ],
+});
+
+
+
 
   /* ================= STAGE CONTROL ================= */
-  const addStage = () => {
-    setForm((prev) => ({
-      ...prev,
-      stages: [
-        ...prev.stages,
-        { id: Date.now().toString(), day: "", ec: "", ph: "" },
-      ],
-    }));
-  };
+ const addStage = () => {
+  setForm((prev) => ({
+    ...prev,
+    stages: [
+      ...prev.stages,
+      {
+        id: Date.now().toString(),
+        startDay: "",
+        endDay: "",
+        times: [createEmptyTime()], // ← ต้องมี
+      },
+    ],
+  }));
+};
+
 
   const removeStage = (id: string) => {
     setForm((prev) => ({
@@ -76,27 +112,92 @@ export default function DashboardPage() {
     }));
   };
 
-  const updateStage = (
-    id: string,
-    key: keyof Stage,
-    value: number | ""
-  ) => {
+  const addTimeRow = (stageId: string) => {
+  setForm((prev) => ({
+      ...prev,
+      stages: prev.stages.map((s) =>
+        s.id === stageId
+          ? {
+              ...s,
+              times: [...s.times, createEmptyTime()], // ใช้ helper
+            }
+          : s
+      ),
+    }));
+  };
+
+const updateTimeRow = (
+  stageId: string,
+  rowId: string,
+  key: "time" | "ec" | "ph",
+  value: string | number
+) => {
+  setForm((prev) => ({
+    ...prev,
+    stages: prev.stages.map((s) =>
+      s.id === stageId
+        ? {
+            ...s,
+            times: s.times.map((t) =>
+              t.id === rowId ? { ...t, [key]: value } : t
+            ),
+          }
+        : s
+    ),
+  }));
+};
+
+const removeTimeRow = (stageId: string, rowId: string) => {
+  setForm((prev) => ({
+    ...prev,
+    stages: prev.stages.map((s) =>
+      s.id === stageId
+        ? { ...s, times: s.times.filter((t) => t.id !== rowId) }
+        : s
+    ),
+  }));
+};
+
+  const updateStage = (id: string, value: number | "") => {
+  setForm((prev) => ({
+    ...prev,
+    stages: prev.stages.map((s) =>
+      s.id === id ? { ...s, endDay: value } : s
+      ),
+    }));
+  };
+
+  const updateStageStart = (id: string, value: number | "") => {
     setForm((prev) => ({
       ...prev,
       stages: prev.stages.map((s) =>
-        s.id === id ? { ...s, [key]: value } : s
+        s.id === id ? { ...s, startDay: value } : s
       ),
     }));
   };
 
   const totalDays =
-    form.stages.length > 0
-      ? Math.max(
-          ...form.stages.map((s) => (s.day === "" ? 0 : Number(s.day)))
-        )
-      : 0;
+  form.stages.length > 0
+    ? Math.max(
+        ...form.stages.map((s) => (s.endDay === "" ? 0 : Number(s.endDay)))
+      )
+    : 0;
 
   /* ================= ADD RECIPE ================= */
+  const resetForm = () => {
+    setForm({
+      recipeName: "",
+      stages: [
+        {
+          id: Date.now().toString(),
+          startDay: "",
+          endDay: "",
+          times: [createEmptyTime()],
+        },
+      ],
+    });
+  };
+
   const addRecipe = () => {
     if (!form.recipeName) return;
 
@@ -115,11 +216,8 @@ export default function DashboardPage() {
 
 
     setOpen(false);
-    setForm({
-      recipeName: "",
-      stages: [{ id: Date.now().toString(), day: "", ec: "", ph: "" }],
-    });
-  };
+    resetForm();
+      };
 
   const deleteRecipe = (id: string) => {
     setRecipes((prev) => {
@@ -144,32 +242,41 @@ export default function DashboardPage() {
     setTimes(times.filter((x) => x !== t));
   };
 
-  const confirmAddToSchedule = () => {
-    if (!selectedRecipe || !startDate || times.length === 0) return;
-
-    const old = JSON.parse(localStorage.getItem("smartmixer_schedule") || "[]");
-
-    const newItem = {
-      id: Date.now(),
-      recipeId: selectedRecipe.id,
-      recipeName: selectedRecipe.recipeName,
-      startDate,
-      times,
-      stages: selectedRecipe.stages,
-      totalDays: selectedRecipe.totalDays,
-    };
-
-    localStorage.setItem(
-      "smartmixer_schedule",
-      JSON.stringify([...old, newItem])
-    );
-
-    setScheduleOpen(false);
-    setTimes([]);
-    setStartDate("");
-
-    router.push("/dashboard/MainProcess"); // ไปหน้าตารางงานหลัก
+  const getToday = () => {
+    const today = new Date();
+    return today.toISOString().split("T")[0]; // YYYY-MM-DD
   };
+
+  const confirmAddToSchedule = () => {
+  if (!selectedRecipe) return;
+
+  // ใช้วันที่ที่ user เลือก ถ้าไม่เลือก → ใช้วันนี้
+  const finalStartDate =
+    startDate && startDate !== "" ? startDate : getToday();
+
+  const old = JSON.parse(localStorage.getItem("smartmixer_schedule") || "[]");
+
+  const newItem = {
+    id: Date.now(),
+    recipeId: selectedRecipe.id,
+    recipeName: selectedRecipe.recipeName,
+    startDate: finalStartDate,
+    times,
+    stages: selectedRecipe.stages,
+    totalDays: selectedRecipe.totalDays,
+  };
+
+  localStorage.setItem(
+    "smartmixer_schedule",
+    JSON.stringify([...old, newItem])
+  );
+
+  setScheduleOpen(false);
+  setTimes([]);
+  setStartDate("");
+
+  router.push("/dashboard/MainProcess");
+};
 
   return (
     <div className="flex min-h-screen bg-[#F4F7FE]">
@@ -222,7 +329,10 @@ export default function DashboardPage() {
               </div>
 
               <button
-                onClick={() => setOpen(true)}
+                onClick={() => 
+                  {resetForm();   // ← ล้างก่อนเปิด
+                  setOpen(true);
+                }}
                 className="w-[160px] h-[44px] bg-emerald-500 text-white text-sm font-medium rounded-xl hover:shadow-md hover:-translate-y-1 transition duration-300"
               >
                 ＋ สร้างสูตรพืชใหม่
@@ -279,6 +389,11 @@ export default function DashboardPage() {
                         <button
                           onClick={() => {
                             setSelectedRecipe(p);
+
+                            // 👉 ใส่วันที่ปัจจุบันเป็นค่า default
+                            const today = new Date().toISOString().split("T")[0];
+                            setStartDate(today);
+
                             setScheduleOpen(true);
                           }}
                           className="flex font-semibold items-center gap-2 px-4 h-[36px] bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-100 transition"
@@ -303,8 +418,9 @@ export default function DashboardPage() {
 
         {/* ================= MODAL ================= */}
         {open && (
-          <div className="fixed inset-0 bg-black/30 flex items-center justify-center">
-            <div className="bg-white rounded-2xl w-full max-w-[600px] p-8 shadow-xl animate-popIn shadow-[0_25px_70px_rgba(0,0,0,0.15)]">
+          <div className="fixed inset-0 bg-black/30 flex items-start justify-center overflow-y-auto py-10">
+            <div className="bg-white rounded-2xl w-full max-w-[720px] max-h-[90vh]
+                p-8 overflow-y-auto shadow-xl animate-popIn shadow-[0_25px_70px_rgba(0,0,0,0.15)]">
               <h3 className="text-center text-xl font-semibold text-[#1E2A69] mb-6">
                 สร้างสูตรพืชใหม่ (Custom)
               </h3>
@@ -323,96 +439,159 @@ export default function DashboardPage() {
                 />
               </div>
 
-              <div className="space-y-3 max-h-[200px] overflow-y-auto">
-                {/* ===== Stage Header ===== */}
-                <div className="flex justify-between items-center mb-2">
-                  <label className="text-sm font-medium text-[#1E2A69]">
-                    ระยะการให้ปุ๋ย (Stages)
-                  </label>
+              <div className="space-y-4">
+                {/* ===== Date Ranges UI (NEW DESIGN) ===== */}
+                <div className="space-y-4">
+                  {/* Header */}
+                  <div className="flex justify-between items-center">
+                    <label className="text-sm font-semibold text-[#1E2A69]">
+                      ช่วงการให้ปุ๋ย (Date Ranges)
+                    </label>
 
-                  <button
-                    type="button"
-                    onClick={addStage}
-                    className="px-3 py-1 bg-emerald-50 text-emerald-600 rounded-lg text-sm hover:bg-emerald-100 transition"
-                  >
-                    + เพิ่มระยะ
-                  </button>
-                </div>
-                {form.stages.map((s) => (
-                    <div
-                      key={s.id}
-                      className="grid gap-3"
-                      style={{ gridTemplateColumns: "1fr 1fr 1fr 44px" }}
+                    <button
+                      type="button"
+                      onClick={addStage}
+                      className="px-4 h-[36px] text-sm rounded-lg border border-emerald-500 text-emerald-600 hover:bg-emerald-50 transition"
                     >
-                      {/* Day */}
-                      <div className="flex flex-col">
-                        <label className="text-xs text-slate-500 mb-1">
-                          สิ้นสุดวันที่ (Day)
-                        </label>
-                        <input
-                          type="number"
-                          placeholder="เช่น 15"
-                          value={s.day}
-                          onChange={(e) =>
-                            updateStage(
-                              s.id,
-                              "day",
-                              e.target.value === "" ? "" : Number(e.target.value)
-                            )
-                          }
-                          className="h-[44px] px-3 rounded-xl border bg-[#F7F9FC] w-full"
-                        />
-                      </div>
+                      + เพิ่มช่วงวัน
+                    </button>
+                  </div>
 
-                      {/* EC */}
-                      <div className="flex flex-col">
-                        <label className="text-xs text-slate-500 mb-1">ค่า EC</label>
-                        <input
-                          type="number"
-                          step="0.1"
-                          placeholder="EC"
-                          value={s.ec}
-                          onChange={(e) =>
-                            updateStage(
-                              s.id,
-                              "ec",
-                              e.target.value === "" ? "" : Number(e.target.value)
-                            )
-                          }
-                          className="h-[44px] px-3 rounded-xl border bg-[#F7F9FC] w-full"
-                        />
-                      </div>
+                  {/* Stage List */}
+                  <div className="space-y-3">
+                    {form.stages.map((s) => (
+                      <div
+                        key={s.id}
+                        className="border border-[#E6ECF5] rounded-2xl p-5 bg-[#FAFCFE]
+                        space-y-4 hover:border-emerald-400 hover:bg-white transition"
+                      >
+                        {/* DAY RANGE */}
+                        <div className="flex gap-3 items-end">
+                          {/* START DAY */}
+                          <div className="flex-1">
+                            <label className="text-xs font-medium text-slate-500 block mb-1">
+                              เริ่มวันที่ (Start Day)
+                            </label>
+                            <input
+                              type="number"
+                              value={s.startDay}
+                              onChange={(e) =>
+                                updateStageStart(
+                                  s.id,
+                                  e.target.value === "" ? "" : Number(e.target.value)
+                                )
+                              }
+                              className="w-full h-[50px] px-3 rounded-xl border border-[#E3E8F2]
+                              bg-[#F7F9FC] focus:bg-white focus:ring-2 focus:ring-emerald-400 outline-none"
+                            />
+                          </div>
 
-                      {/* pH */}
-                      <div className="flex flex-col">
-                        <label className="text-xs text-slate-500 mb-1">ค่า pH</label>
-                        <input
-                          type="number"
-                          step="0.1"
-                          placeholder="pH"
-                          value={s.ph}
-                          onChange={(e) =>
-                            updateStage(
-                              s.id,
-                              "ph",
-                              e.target.value === "" ? "" : Number(e.target.value)
-                            )
-                          }
-                          className="h-[44px] px-3 rounded-xl border bg-[#F7F9FC] w-full"
-                        />
-                      </div>
+                          {/* DASH */}
+                          <div className="w-[20px] text-center text-slate-400 pb-2">-</div>
 
-                      {/* Delete */}
-                      <div className="flex items-end">
-                        <button
-                          onClick={() => removeStage(s.id)}
-                          className="bg-red-50 text-red-500 rounded-xl w-[44px] h-[44px] flex items-center justify-center"
-                        >
-                          <TrashIcon className="w-5 h-5" />
-                        </button>
+                          {/* END DAY */}
+                          <div className="flex-1">
+                            <label className="text-xs font-medium text-slate-500 block mb-1">
+                              ถึงวันที่ (End Day)
+                            </label>
+                            <input
+                              type="number"
+                              value={s.endDay}
+                              onChange={(e) =>
+                                updateStage(
+                                  s.id,
+                                  e.target.value === "" ? "" : Number(e.target.value)
+                                )
+                              }
+                              className="w-full h-[50px] px-3 rounded-xl border border-[#E3E8F2]
+                              bg-[#F7F9FC] focus:bg-white focus:ring-2 focus:ring-emerald-400 outline-none"
+                            />
+                          </div>
+
+                          {/* DELETE */}
+                          <button
+                            onClick={() => removeStage(s.id)}
+                            className="w-[44px] h-[44px] bg-red-50 text-red-500 rounded-xl hover:bg-red-100 shrink-0"
+                          >
+                            <TrashIcon className="w-4 h-4 mx-auto" />
+                          </button>
+                        </div>
+                        {/* TIME HEADER */}
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-400 font-semibold">
+                            เวลาที่รดน้ำ:
+                          </span>
+
+                          <button
+                            onClick={() => addTimeRow(s.id)}
+                            className="w-8 h-8 text-xs bg-emerald-100 text-emerald-600 rounded-xl hover:bg-emerald-200 shrink-0 "
+                          >
+                            <AddIcon className="w-4 h-4 mx-auto" />
+                          </button>
+                        </div>
+
+                        {/* TIME ROWS */}
+                        {s.times.map((t) => (
+                          <div key={t.id} className="flex gap-3 items-center">
+                            {/* TIME (ให้กว้างขึ้น) */}
+                            <input
+                              type="time"
+                              value={t.time}
+                              onChange={(e) =>
+                                updateTimeRow(s.id, t.id, "time", e.target.value)
+                              }
+                              className="flex-[2] h-[50px] px-3 rounded-lg border border-[#E3E8F2]
+                              bg-white focus:ring-emerald-400 focus:ring-2 outline-none min-w-[180px]"
+                            />
+
+                            {/* EC */}
+                            <input
+                              type="number"
+                              step="0.1"
+                              placeholder="EC"
+                              value={t.ec}
+                              onChange={(e) =>
+                                updateTimeRow(
+                                  s.id,
+                                  t.id,
+                                  "ec",
+                                  e.target.value === "" ? "" : Number(e.target.value)
+                                )
+                              }
+                              className="flex-1 h-[50px] px-3 rounded-lg border border-[#E3E8F2]
+                              bg-white focus:ring-emerald-400 focus:ring-2 outline-none w-[150px]"
+                            />
+
+                            {/* PH */}
+                            <input
+                              type="number"
+                              step="0.1"
+                              placeholder="pH"
+                              value={t.ph}
+                              onChange={(e) =>
+                                updateTimeRow(
+                                  s.id,
+                                  t.id,
+                                  "ph",
+                                  e.target.value === "" ? "" : Number(e.target.value)
+                                )
+                              }
+                              className="flex-1 h-[50px] px-3 rounded-lg border border-[#E3E8F2]
+                              bg-white focus:ring-emerald-400 focus:ring-2 outline-none w-[150px]"
+                            />
+                              <button
+                                onClick={() => removeTimeRow(s.id, t.id)}
+                                className="w-[44px] h-[44px] bg-red-50 text-red-500 rounded-xl hover:bg-red-100 shrink-0"
+                              >
+                                <TrashIcon className="w-4 h-4 mx-auto" />
+                            </button>
+                            </div>
+                        ))}
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
+
+                </div>
               </div>
 
               <div className="text-right mt-4 border-t pt-3 text-sm">
@@ -425,7 +604,10 @@ export default function DashboardPage() {
 
               <div className="flex gap-3 mt-6">
                 <button
-                  onClick={() => setOpen(false)}
+                  onClick={() => {
+                  setOpen(false);
+                  resetForm();   // ← ล้างค่าที่กรอกทิ้ง
+                }}
                   className="flex-1 h-[48px] bg-[#EEF1F7] rounded-xl hover:scale-[1.02] hover:shadow-lg
                   transition-all duration-200"
                 >
@@ -459,20 +641,34 @@ export default function DashboardPage() {
                 <div>ค่า PH</div>
               </div>
 
-              {selectedRecipe.stages.map((s, index) => {
-                const startDay =
-                  index === 0
-                    ? 1
-                    : Number(selectedRecipe.stages[index - 1].day) + 1;
+              {selectedRecipe.stages.map((s) => {
+              // ✅ เรียงเวลาก่อนแสดงผล
+              const sortedTimes = [...s.times]
+                .filter((t) => t.time) // ตัดแถวว่างออกก่อน
+                .sort((a, b) => a.time.localeCompare(b.time)); // เรียงแบบ HH:mm
 
-                return (
-                  <div key={s.id} className="grid grid-cols-3 px-6 py-4 border-t text-[#1E2A69]">
-                    <div>วันที่ {startDay} - {s.day}</div>
-                    <div className="text-emerald-500 font-semibold">{s.ec}</div>
-                    <div>{s.ph}</div>
+              return (
+                <div key={s.id} className="border-t px-6 py-4 text-[#1E2A69]">
+                  <div className="font-semibold mb-2">
+                    วันที่{" "}
+                    {s.startDay === s.endDay
+                      ? s.startDay
+                      : `${s.startDay} - ${s.endDay}`}
                   </div>
-                );
-              })}
+                  {sortedTimes.length === 0 && (
+                    <div className="text-sm text-slate-400">ไม่มีเวลาที่ตั้งไว้</div>
+                  )}
+
+                  {sortedTimes.map((t) => (
+                    <div key={t.id} className="grid grid-cols-3 text-sm py-1">
+                      <div>{t.time}</div>
+                      <div className="text-emerald-500 font-medium">{t.ec || "-"}</div>
+                      <div>{t.ph || "-"}</div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
             </div>
 
             <button
@@ -508,25 +704,6 @@ export default function DashboardPage() {
         onChange={(e) => setStartDate(e.target.value)}
         className="w-full h-[48px] px-4 rounded-xl border bg-[#F7F9FC] mb-5 mt-3"
       />
-
-      {/* เวลา */}
-      <label className="text-sm font-medium text-[#1E2A69]">กำหนดเวลาทำงานในแต่ละวัน</label>
-
-      <div className="flex gap-3 mt-2 mb-5">
-        <input
-          type="time"
-          value={timeInput}
-          onChange={(e) => setTimeInput(e.target.value)}
-          className="flex-1 h-[48px] px-4 rounded-xl border bg-[#F7F9FC]"
-        />
-
-        <button
-          onClick={addTime}
-          className="px-5 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 transition"
-        >
-          + เพิ่ม
-        </button>
-      </div>
       {/* แสดงเวลาที่เพิ่ม */}
           <div className="flex gap-2 mt-4 flex-wrap">
             {times.map((t) => (
