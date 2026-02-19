@@ -11,6 +11,10 @@ const db = new sqlite3.Database(dbPath, (err) => {
   }
 });
 
+// เปิด foreign key support
+db.run("PRAGMA foreign_keys = ON");
+
+
 // ================= CREATE TABLE =================
 db.serialize(() => {
 
@@ -26,15 +30,6 @@ db.serialize(() => {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
-
-  // 🔥 ถ้า column temperature ยังไม่มี ให้เพิ่ม
-  db.run(`
-    ALTER TABLE sensor_log ADD COLUMN temperature REAL
-  `, (err) => {
-    if (err && !err.message.includes("duplicate column")) {
-      console.error("❌ Add temperature column error:", err.message);
-    }
-  });
 
   // ===== SYSTEM STATUS =====
   db.run(`
@@ -61,26 +56,49 @@ db.serialize(() => {
     )
   `);
 
-  // ===== MAIN PROCESS JOBS =====
-  db.run(`
-    CREATE TABLE IF NOT EXISTS main_process_jobs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      date TEXT,
-      time TEXT,
-      name TEXT,
-      ecTarget TEXT,
-      status TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
   // ===== FORMULA =====
   db.run(`
     CREATE TABLE IF NOT EXISTS formula (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT,
-      ecTarget TEXT,
-      status TEXT,
+      name TEXT NOT NULL,
+      totalDays INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // ===== FORMULA STAGES =====
+  db.run(`
+    CREATE TABLE IF NOT EXISTS formula_stages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      formula_id INTEGER,
+      startDay INTEGER,
+      endDay INTEGER,
+      FOREIGN KEY(formula_id) REFERENCES formula(id) ON DELETE CASCADE
+    )
+  `);
+
+  // ===== STAGE TIMES =====
+  db.run(`
+    CREATE TABLE IF NOT EXISTS stage_times (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      stage_id INTEGER,
+      time TEXT,
+      ec REAL,
+      ph REAL,
+      FOREIGN KEY(stage_id) REFERENCES formula_stages(id) ON DELETE CASCADE
+    )
+  `);
+
+  // ===== MAIN PROCESS JOBS =====
+  db.run(`
+    CREATE TABLE IF NOT EXISTS main_process_jobs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      task_name TEXT,
+      date TEXT,
+      time TEXT,
+      ec REAL,
+      ph REAL,
+      status TEXT DEFAULT 'PENDING',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
@@ -92,7 +110,8 @@ db.serialize(() => {
       date TEXT,
       time TEXT,
       name TEXT,
-      ecTarget TEXT,
+      ec REAL,
+      ph REAL,
       status TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )

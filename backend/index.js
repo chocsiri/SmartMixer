@@ -2,243 +2,202 @@ const express = require("express");
 const cors = require("cors");
 const bodyParser = require("body-parser");
 const http = require("http");
+const dayjs = require("dayjs");
 
-const config = require("./config");
-const state = require("./state");
 const db = require("./db");
 
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-/* ================= CREATE SERVER ================= */
 const server = http.createServer(app);
-
-/* ================= INIT SOCKET ================= */
-const socket = require("./socket");
-socket.init(server);
-
-/* ================= INIT MQTT ================= */
-const mqtt = require("./mqtt");
 
 /* ================= HEALTH CHECK ================= */
 app.get("/", (req, res) => {
   res.send("SMART MIXER BACKEND ONLINE");
 });
 
-/* ================= STATUS ================= */
-app.get("/status", (req, res) => {
-  const now = Date.now();
-  const offline = !state.lastUpdate || now - state.lastUpdate > 10000;
+/* =====================================================
+   =================== FORMULA =========================
+   ===================================================== */
 
-  res.json({
-    config,
-    state,
-    offline,
-  });
-});
-
-/* ================= DEVICE STATUS ================= */
-app.get("/device/status", (req, res) => {
-  res.json({
-    mode: state.mode,
-    pumpA: state.pumpA,
-    pumpB: state.pumpB,
-    pumpPhUp: state.pumpPhUp,
-    pumpPhDown: state.pumpPhDown,
-  });
-});
-
-
-/* ================= START / STOP PROCESS ================= */
-app.post("/process/start", (req, res) => {
-  mqtt.sendCommand({ start: true });
-  res.json({ success: true });
-});
-
-app.post("/process/stop", (req, res) => {
-  mqtt.sendCommand({ stop: true });
-  res.json({ success: true });
-});
-
-/* ================= SENSOR POST ================= */
-app.post("/sensor", (req, res) => {
-  const { ec, ph, temperature, flow, waterLevel } = req.body;
-
-  const ecVal = Number(ec);
-  const phVal = Number(ph);
-
-  if (isNaN(ecVal) || isNaN(phVal)) {
-    return res.status(400).json({ success: false });
-  }
-
-  state.ec = ecVal;
-  state.ph = phVal;
-  state.temperature = Number(temperature) || state.temperature;
-  state.flow = Number(flow) || state.flow;
-  state.waterLevel = Number(waterLevel) || state.waterLevel;
-  state.lastUpdate = Date.now();
-
-  db.run(
-    `INSERT INTO sensor_log (ec, ph, flow, waterLevel, temperature)
-     VALUES (?,?,?,?,?)`,
-    [
-      state.ec,
-      state.ph,
-      state.flow,
-      state.waterLevel,
-      state.temperature,
-    ]
-  );
-
-  res.json({ success: true });
-});
-
-/* ================= SENSOR LATEST ================= */
-app.get("/sensor/latest", (req, res) => {
-  db.get(
-    `SELECT ec, ph, temperature, flow, waterLevel, created_at
-     FROM sensor_log
-     ORDER BY id DESC
-     LIMIT 1`,
-    [],
-    (err, row) => {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json(row || {});
-    }
-  );
-});
-
-/* ================= HISTORY ================= */
-app.get("/history", (req, res) => {
+// ✅ GET ALL FORMULA
+app.get("/api/formula", (req, res) => {
   db.all(
-    `SELECT id, created_at, ec, ph, flow, waterLevel, temperature
-     FROM sensor_log
-     ORDER BY id DESC`,
+    `SELECT * FROM formula ORDER BY id DESC`,
     [],
     (err, rows) => {
-      if (err) return res.status(500).json({ error: err.message });
+      if (err) {
+        console.error(err);
+        return res.status(500).json({ error: err.message });
+      }
       res.json(rows);
     }
   );
 });
 
-/* ================= MODE ================= */
-app.post("/mode", (req, res) => {
-  const { mode } = req.body;
+// ✅ CREATE FORMULA + STAGES + TIMES
+app.post("/api/formula", (req, res) => {
+  const { recipeName, stages } = req.body;
 
-  if (!["AUTO", "MANUAL"].includes(mode)) {
+  if (!recipeName || !Array.isArray(stages)) {
     return res.status(400).json({ success: false });
   }
 
-  config.mode = mode;
-  mqtt.publishConfig();
-
-  res.json({ success: true, mode });
-});
-
-/* ================= CONFIG ================= */
-app.post("/config", (req, res) => {
-  Object.assign(config, req.body);
-  mqtt.publishConfig();
-  res.json({ success: true });
-});
-
-/* ================= COMMAND ================= */
-app.post("/command", (req, res) => {
-  mqtt.sendCommand(req.body);
-
-  const { pumpA, pumpB, pumpPhUp, pumpPhDown } = req.body;
-
-  db.run(
-    `INSERT INTO manual_command
-     (pumpA, pumpB, pumpPhUp, pumpPhDown)
-     VALUES (?,?,?,?)`,
-    [
-      pumpA ? 1 : 0,
-      pumpB ? 1 : 0,
-      pumpPhUp ? 1 : 0,
-      pumpPhDown ? 1 : 0,
-    ]
+  const totalDays = Math.max(
+    ...stages.map((s) => Number(s.endDay || 0))
   );
 
-  res.json({ success: true });
-});
-
-/* ================= MAIN PROCESS ================= */
-app.get("/main-process", (req, res) => {
-  db.all(
-    `SELECT * FROM main_process_jobs ORDER BY date, time`,
-    (err, rows) => {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json(rows);
-    }
-  );
-});
-
-app.post("/main-process", (req, res) => {
-  const { date, time, name, ecTarget, status } = req.body;
-
   db.run(
-    `INSERT INTO main_process_jobs (date, time, name, ecTarget, status)
-     VALUES (?,?,?,?,?)`,
-    [date, time, name, ecTarget || "", status || "pending"],
+    `INSERT INTO formula (name, totalDays)
+     VALUES (?, ?)`,
+    [recipeName, totalDays],
     function (err) {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json({ success: true, id: this.lastID });
-    }
-  );
-});
+      if (err) {
+        console.error("Insert formula error:", err);
+        return res.status(500).json({ error: err.message });
+      }
 
-app.put("/main-process/:id", (req, res) => {
-  db.run(
-    `UPDATE main_process_jobs SET status = ? WHERE id = ?`,
-    [req.body.status, req.params.id],
-    function (err) {
-      if (err) return res.status(500).json({ error: err.message });
+      const formulaId = this.lastID;
+
+      stages.forEach((stage) => {
+        db.run(
+          `INSERT INTO formula_stages (formula_id, startDay, endDay)
+           VALUES (?, ?, ?)`,
+          [formulaId, stage.startDay, stage.endDay],
+          function (err) {
+            if (err) {
+              console.error("Insert stage error:", err);
+              return;
+            }
+
+            const stageId = this.lastID;
+
+            if (Array.isArray(stage.times)) {
+              stage.times.forEach((t) => {
+                db.run(
+                  `INSERT INTO stage_times (stage_id, time, ec, ph)
+                   VALUES (?, ?, ?, ?)`,
+                  [stageId, t.time, t.ec, t.ph]
+                );
+              });
+            }
+          }
+        );
+      });
+
       res.json({ success: true });
     }
   );
 });
 
-app.delete("/main-process/:id", (req, res) => {
+// ✅ DELETE FORMULA (cascade จะลบ stage/time ให้เอง)
+app.delete("/api/formula/:id", (req, res) => {
+  db.run(
+    `DELETE FROM formula WHERE id = ?`,
+    [req.params.id],
+    function (err) {
+      if (err) {
+        console.error(err);
+        return res.status(500).json({ error: err.message });
+      }
+      res.json({ success: true });
+    }
+  );
+});
+
+
+/* =====================================================
+   =============== MAIN PROCESS ========================
+   ===================================================== */
+
+// ✅ GET ALL JOBS
+app.get("/api/main-process", (req, res) => {
+  db.all(
+    `SELECT * FROM main_process_jobs ORDER BY date ASC, time ASC`,
+    [],
+    (err, rows) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).json({ error: err.message });
+      }
+      res.json(rows);
+    }
+  );
+});
+
+// ✅ GENERATE FROM FORMULA
+app.post("/api/main-process/generate", (req, res) => {
+  const { formulaId, startDate } = req.body;
+
+  if (!formulaId || !startDate) {
+    return res.status(400).json({ error: "Missing data" });
+  }
+
+  db.all(
+    `
+    SELECT fs.startDay, fs.endDay, st.time, st.ec, st.ph
+    FROM formula_stages fs
+    JOIN stage_times st ON fs.id = st.stage_id
+    WHERE fs.formula_id = ?
+    `,
+    [formulaId],
+    (err, rows) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).json({ error: err.message });
+      }
+
+      if (!rows.length) {
+        return res.status(400).json({ error: "No stages found" });
+      }
+
+      rows.forEach((row) => {
+        for (let day = row.startDay; day <= row.endDay; day++) {
+
+          const realDate = dayjs(startDate)
+            .add(day - 1, "day")
+            .format("YYYY-MM-DD");
+
+          db.run(
+            `INSERT INTO main_process_jobs
+             (task_name, date, time, ec, ph, status)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [
+              `Day ${day}`,
+              realDate,
+              row.time,
+              row.ec,
+              row.ph,
+              "PENDING",
+            ]
+          );
+        }
+      });
+
+      res.json({ success: true });
+    }
+  );
+});
+
+// ✅ DELETE JOB
+app.delete("/api/main-process/:id", (req, res) => {
   db.run(
     `DELETE FROM main_process_jobs WHERE id = ?`,
     [req.params.id],
     function (err) {
-      if (err) return res.status(500).json({ error: err.message });
+      if (err) {
+        console.error(err);
+        return res.status(500).json({ error: err.message });
+      }
       res.json({ success: true });
     }
   );
 });
 
-/* ================= FORMULA ================= */
-app.get("/formula", (req, res) => {
-  db.all(`SELECT * FROM formula ORDER BY created_at DESC`, (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(rows);
-  });
-});
-
-app.post("/formula", (req, res) => {
-  const { name, ecTarget } = req.body;
-
-  db.run(
-    `INSERT INTO formula (name, ecTarget, status)
-     VALUES (?,?,?)`,
-    [name, ecTarget, "active"],
-    function (err) {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json({ success: true, id: this.lastID });
-    }
-  );
-});
-
-/* ================= ERROR PROTECTION ================= */
-process.on("uncaughtException", console.error);
-process.on("unhandledRejection", console.error);
 
 /* ================= START SERVER ================= */
+
 const PORT = 5000;
 
 server.listen(PORT, () => {
