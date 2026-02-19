@@ -21,22 +21,70 @@ app.get("/", (req, res) => {
    =================== FORMULA =========================
    ===================================================== */
 
-// ✅ GET ALL FORMULA
+/* ✅ GET ALL FORMULA (พร้อม stages + times) */
 app.get("/api/formula", (req, res) => {
-  db.all(
-    `SELECT * FROM formula ORDER BY id DESC`,
-    [],
-    (err, rows) => {
-      if (err) {
-        console.error(err);
-        return res.status(500).json({ error: err.message });
-      }
-      res.json(rows);
-    }
-  );
+  db.all(`SELECT * FROM formula ORDER BY id DESC`, [], (err, formulas) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    if (!formulas.length) return res.json([]);
+
+    const result = [];
+
+    formulas.forEach((formula) => {
+      db.all(
+        `SELECT * FROM formula_stages WHERE formula_id = ?`,
+        [formula.id],
+        (err, stages) => {
+          if (err) return res.status(500).json({ error: err.message });
+
+          if (!stages.length) {
+            result.push({
+              id: formula.id,
+              recipeName: formula.name,
+              totalDays: formula.totalDays,
+              stages: [],
+            });
+
+            if (result.length === formulas.length)
+              return res.json(result);
+
+            return;
+          }
+
+          const stagePromises = stages.map(
+            (stage) =>
+              new Promise((resolve) => {
+                db.all(
+                  `SELECT * FROM stage_times WHERE stage_id = ?`,
+                  [stage.id],
+                  (err, times) => {
+                    resolve({
+                      ...stage,
+                      times: times || [],
+                    });
+                  }
+                );
+              })
+          );
+
+          Promise.all(stagePromises).then((fullStages) => {
+            result.push({
+              id: formula.id,
+              recipeName: formula.name,
+              totalDays: formula.totalDays,
+              stages: fullStages,
+            });
+
+            if (result.length === formulas.length)
+              res.json(result);
+          });
+        }
+      );
+    });
+  });
 });
 
-// ✅ CREATE FORMULA + STAGES + TIMES
+/* ✅ CREATE FORMULA */
 app.post("/api/formula", (req, res) => {
   const { recipeName, stages } = req.body;
 
@@ -44,19 +92,13 @@ app.post("/api/formula", (req, res) => {
     return res.status(400).json({ success: false });
   }
 
-  const totalDays = Math.max(
-    ...stages.map((s) => Number(s.endDay || 0))
-  );
+  const totalDays = Math.max(...stages.map((s) => Number(s.endDay || 0)));
 
   db.run(
-    `INSERT INTO formula (name, totalDays)
-     VALUES (?, ?)`,
+    `INSERT INTO formula (name, totalDays) VALUES (?, ?)`,
     [recipeName, totalDays],
     function (err) {
-      if (err) {
-        console.error("Insert formula error:", err);
-        return res.status(500).json({ error: err.message });
-      }
+      if (err) return res.status(500).json({ error: err.message });
 
       const formulaId = this.lastID;
 
@@ -66,10 +108,7 @@ app.post("/api/formula", (req, res) => {
            VALUES (?, ?, ?)`,
           [formulaId, stage.startDay, stage.endDay],
           function (err) {
-            if (err) {
-              console.error("Insert stage error:", err);
-              return;
-            }
+            if (err) return;
 
             const stageId = this.lastID;
 
@@ -91,48 +130,80 @@ app.post("/api/formula", (req, res) => {
   );
 });
 
-// ✅ DELETE FORMULA (cascade จะลบ stage/time ให้เอง)
+/* ✅ DELETE FORMULA */
 app.delete("/api/formula/:id", (req, res) => {
   db.run(
     `DELETE FROM formula WHERE id = ?`,
     [req.params.id],
     function (err) {
-      if (err) {
-        console.error(err);
-        return res.status(500).json({ error: err.message });
-      }
+      if (err) return res.status(500).json({ error: err.message });
       res.json({ success: true });
     }
   );
 });
 
-
 /* =====================================================
    =============== MAIN PROCESS ========================
    ===================================================== */
 
-// ✅ GET ALL JOBS
+/* ✅ GET ALL JOBS */
 app.get("/api/main-process", (req, res) => {
   db.all(
-    `SELECT * FROM main_process_jobs ORDER BY date ASC, time ASC`,
+    `
+    SELECT 
+      id,
+      task_name AS name,
+      date,
+      time,
+      ec AS ecTarget,
+      ph AS phTarget,
+      LOWER(status) AS status
+    FROM main_process_jobs
+    ORDER BY date ASC, time ASC
+    `,
     [],
     (err, rows) => {
-      if (err) {
-        console.error(err);
-        return res.status(500).json({ error: err.message });
-      }
+      if (err) return res.status(500).json({ error: err.message });
       res.json(rows);
     }
   );
 });
 
-// ✅ GENERATE FROM FORMULA
+/* ✅ ADD JOB MANUAL */
+app.post("/api/main-process", (req, res) => {
+  const { date, time, name, ecTarget, phTarget, status } = req.body;
+
+  if (!date || !time || !name) {
+    return res.status(400).json({ error: "Missing fields" });
+  }
+
+  db.run(
+    `
+    INSERT INTO main_process_jobs
+    (task_name, date, time, ec, ph, status)
+    VALUES (?, ?, ?, ?, ?, ?)
+    `,
+    [
+      name,
+      date,
+      time,
+      ecTarget || 0,
+      phTarget || 0,
+      status ? status.toUpperCase() : "PENDING",
+    ],
+    function (err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, id: this.lastID });
+    }
+  );
+});
+
+/* ✅ GENERATE FROM FORMULA */
 app.post("/api/main-process/generate", (req, res) => {
   const { formulaId, startDate } = req.body;
 
-  if (!formulaId || !startDate) {
+  if (!formulaId || !startDate)
     return res.status(400).json({ error: "Missing data" });
-  }
 
   db.all(
     `
@@ -143,26 +214,20 @@ app.post("/api/main-process/generate", (req, res) => {
     `,
     [formulaId],
     (err, rows) => {
-      if (err) {
-        console.error(err);
-        return res.status(500).json({ error: err.message });
-      }
-
-      if (!rows.length) {
-        return res.status(400).json({ error: "No stages found" });
-      }
+      if (err) return res.status(500).json({ error: err.message });
 
       rows.forEach((row) => {
         for (let day = row.startDay; day <= row.endDay; day++) {
-
           const realDate = dayjs(startDate)
             .add(day - 1, "day")
             .format("YYYY-MM-DD");
 
           db.run(
-            `INSERT INTO main_process_jobs
-             (task_name, date, time, ec, ph, status)
-             VALUES (?, ?, ?, ?, ?, ?)`,
+            `
+            INSERT INTO main_process_jobs
+            (task_name, date, time, ec, ph, status)
+            VALUES (?, ?, ?, ?, ?, ?)
+            `,
             [
               `Day ${day}`,
               realDate,
@@ -180,21 +245,38 @@ app.post("/api/main-process/generate", (req, res) => {
   );
 });
 
-// ✅ DELETE JOB
-app.delete("/api/main-process/:id", (req, res) => {
+/* ✅ UPDATE STATUS */
+app.put("/api/main-process/:id", (req, res) => {
+  const { status } = req.body;
+
+  if (!status)
+    return res.status(400).json({ error: "Missing status" });
+
   db.run(
-    `DELETE FROM main_process_jobs WHERE id = ?`,
-    [req.params.id],
+    `
+    UPDATE main_process_jobs
+    SET status = ?
+    WHERE id = ?
+    `,
+    [status.toUpperCase(), req.params.id],
     function (err) {
-      if (err) {
-        console.error(err);
-        return res.status(500).json({ error: err.message });
-      }
+      if (err) return res.status(500).json({ error: err.message });
       res.json({ success: true });
     }
   );
 });
 
+/* ✅ DELETE JOB */
+app.delete("/api/main-process/:id", (req, res) => {
+  db.run(
+    `DELETE FROM main_process_jobs WHERE id = ?`,
+    [req.params.id],
+    function (err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    }
+  );
+});
 
 /* ================= START SERVER ================= */
 
@@ -203,3 +285,4 @@ const PORT = 5000;
 server.listen(PORT, () => {
   console.log(`🚀 Backend running on port ${PORT}`);
 });
+TEST PUSH 2026

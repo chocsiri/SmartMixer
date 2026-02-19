@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import {
   FaChartPie,
@@ -11,348 +11,159 @@ import {
 } from "react-icons/fa";
 
 /* ===================== TYPES ===================== */
-type Task = {
+type HistoryLog = {
   id: number;
-  date: string;
-  time: string;
-  name: string;
-  ecTarget: string;
-  status: "pending" | "running" | "done";
+  created_at: string;
+  ec: number;
+  ph: number;
+  flow: number;
+  waterLevel: number;
 };
 
 /* ===================== PAGE ===================== */
-export default function MainProcessPage() {
+export default function HistoryPage() {
   const router = useRouter();
   const pathname = usePathname();
 
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [open, setOpen] = useState(false);
+  const [isRunning] = useState(false);
+  const [logs, setLogs] = useState<HistoryLog[]>([]);
+  const [loading, setLoading] = useState(true);
+  const isMounted = useRef(true);
 
-  const [schedule, setSchedule] = useState<any[]>([]);
-  
-
-  useEffect(() => {
-    const data = JSON.parse(localStorage.getItem("smartmixer_schedule") || "[]");
-    setSchedule(data);
-  }, []);
-
-    const [form, setForm] = useState({
-    date: new Date().toISOString().slice(0, 10),
-    time: "09:00",
-    name: "",
-    ec: 1.0,
-    ph: 6.0,
-  });
-
-  /* ================= FETCH DATA ================= */
-  useEffect(() => {
-    fetchTasks();
-  }, []);
-
-  const fetchTasks = async () => {
+  /* ================= FETCH FUNCTION ================= */
+  const fetchHistory = async () => {
     try {
-      const res = await fetch("http://localhost:5000/main-process");
-      const data = await res.json();
-      setTasks(data);
-    } catch (err) {
-      console.error("Fetch main process error:", err);
-    }
-  };
-
-  /* ================= ADD TASK ================= */
-  const addTask = async () => {
-    if (!form.name) return;
-
-    try {
-      const res = await fetch("http://localhost:5000/main-process", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          date: form.date,
-          time: form.time,
-          name: form.name,
-          ecTarget: form.ec.toString(),
-          status: "pending",
-        }),
+      const res = await fetch("http://localhost:5000/history", {
+        cache: "no-store",
       });
 
+      if (!res.ok) throw new Error("Fetch failed");
+
       const data = await res.json();
 
-      if (data.success) {
-        await fetchTasks();
-        setOpen(false);
-        setForm({ ...form, name: "" });
+      if (isMounted.current) {
+        setLogs(data);
       }
     } catch (err) {
-      console.error("Add task error:", err);
+      console.error("History load error:", err);
+    } finally {
+      if (isMounted.current) {
+        setLoading(false);
+      }
     }
   };
 
-  /* ================= DELETE TASK ================= */
-  const deleteTask = async (id: number) => {
-    try {
-      await fetch(`http://localhost:5000/main-process/${id}`, {
-        method: "DELETE",
-      });
-      fetchTasks();
-    } catch (err) {
-      console.error("Delete error:", err);
-    }
-  };
+  /* ================= INITIAL LOAD ================= */
+  useEffect(() => {
+    fetchHistory();
 
-  /* ================= UPDATE STATUS ================= */
-  const updateStatus = async (id: number, status: string) => {
-    try {
-      await fetch(`http://localhost:5000/main-process/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
-      });
-      fetchTasks();
-    } catch (err) {
-      console.error("Update status error:", err);
-    }
-  };
+    const interval = setInterval(fetchHistory, 5000);
+
+    return () => {
+      isMounted.current = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   return (
     <div className="flex min-h-screen bg-[#F4F7FE]">
       {/* ================= SIDEBAR ================= */}
       <aside className="w-64 bg-white px-6 py-6 flex flex-col">
-              <h1 className="mt-4 text-[32px] font-bold text-[#1E2A69]">
-                SMART<span className="text-[#05CD99]">MIXER</span>
-              </h1>
-      
-              <nav className="space-y-2 mt-8">
-                <SidebarItem label="แดชบอร์ด" icon={<FaChartPie />} href="/dashboard" active={pathname === "/dashboard"} />
-                <SidebarItem label="ตารางงานหลัก" icon={<FaListAlt />} href="/dashboard/MainProcess" active={pathname === "/dashboard/MainProcess"} />
-                <SidebarItem label="จัดการสูตรพืช" icon={<FaSeedling />} href="/dashboard/Formula" active={pathname === "/dashboard/Formula"} />
-                <SidebarItem label="ประวัติย้อนหลัง" icon={<FaHistory />} href="/dashboard/history" active={pathname === "/dashboard/history"} />
-              </nav>
-      
-              <div className="mt-auto">
-                <button
-                  onClick={() => router.replace("/")}
-                  className="flex items-center gap-3 text-red-500 hover:bg-red-50 px-4 py-3 rounded-xl w-full"
-                >
-                  <FaSignOutAlt /> ออกจากระบบ
-                </button>
-              </div>
-            </aside>
+        <h1 className="mt-4 text-[32px] font-bold text-[#1E2A69]">
+          SMART<span className="text-[#05CD99]">MIXER</span>
+        </h1>
+
+        <nav className="space-y-2 mt-8">
+          <SidebarItem label="แดชบอร์ด" icon={<FaChartPie />} href="/dashboard" active={pathname === "/dashboard"} />
+          <SidebarItem label="ตารางงานหลัก" icon={<FaListAlt />} href="/dashboard/MainProcess" active={pathname === "/dashboard/MainProcess"} />
+          <SidebarItem label="จัดการสูตรพืช" icon={<FaSeedling />} href="/dashboard/Formula" active={pathname === "/dashboard/Formula"} />
+          <SidebarItem label="ประวัติย้อนหลัง" icon={<FaHistory />} href="/dashboard/history" active />
+        </nav>
+
+        <div className="mt-auto">
+          <button
+            onClick={() => router.replace("/")}
+            className="flex items-center gap-3 text-red-500 hover:bg-red-50 px-4 py-3 rounded-xl w-full"
+          >
+            <FaSignOutAlt /> ออกจากระบบ
+          </button>
+        </div>
+      </aside>
 
       {/* ================= MAIN ================= */}
       <main className="flex-1 p-8">
-        <div className="flex justify-between mb-6">
+        <div className="flex justify-between items-center">
           <h2 className="text-3xl font-bold text-blue-900 ml-5 mb-2 mt-5">
-            ตารางงานหลัก (Main Process)
+            ประวัติย้อนหลัง
           </h2>
-
-
         </div>
 
         <div className="bg-white rounded-2xl p-6 shadow-sm mt-6 hover:shadow-md hover:-translate-y-0.5 transition duration-300">
-          <div className="flex justify-between items-start mb-6">
-          <div>
-              <h3 className="font-bold text-blue-900 text-xl">
-                📋 ตารางงานหลัก (Main Process)
-              </h3>
-              <p className="text-sm text-slate-400 mt-1 mb-6">
-                เครื่องจะทำงานตามรายการนี้ตามลำดับเวลา (สามารถ 1 วันทำหลายรอบได้)
-              </p>
-            </div>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setOpen(true)}
-                  className="w-[120px] h-[44px] bg-emerald-500 hover:bg-emerald-600 text-white px-5 py-2 rounded-xl text-sm font-medium hover:shadow-md hover:-translate-y-1 transition duration-300"
-                >
-                  ＋ เพิ่มงาน
-                </button>
-
-                <button
-                  onClick={() => setTasks([])}
-                  className="w-[120px] h-[44px] border-2 border-red-400 text-red-500 px-5 py-2 rounded-xl text-[14px] font-medium hover:bg-red-500 hover:text-white hover:shadow-md hover:-translate-y-1 transition duration-300"
-                >
-                  🗑 ล้างตาราง
-                </button>
-              </div>
-            </div>
+          <h3 className="font-bold text-blue-900 text-xl mb-6">
+            ประวัติการทำงาน (History Logs)
+          </h3>
 
           <table className="w-full text-sm">
             <thead className="border-b text-slate-400">
               <tr>
-                <th className="text-left py-3">วันที่ (Date)</th>
-                <th className="text-left py-3">เวลา (Time)</th>
-                <th className="text-left py-3">งาน/สูตร (Task Name)</th>
-                <th className="text-left py-3">EC / pH</th>
-                <th className="text-left py-3">สถานะ</th>
-                <th className="text-left py-3">จัดการ (Custom)</th>
+                <th className="text-left py-3">วัน/เวลา</th>
+                <th className="text-left py-3">EC</th>
+                <th className="text-left py-3">pH</th>
+                <th className="text-left py-3">Flow</th>
+                <th className="text-left py-3">Water Level</th>
               </tr>
             </thead>
 
             <tbody>
-              {tasks.length === 0 && (
+              {loading ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-8 text-slate-400">
-                    ยังไม่มีรายการ
+                  <td colSpan={5} className="py-6 text-center text-slate-400">
+                    กำลังโหลดข้อมูล...
                   </td>
                 </tr>
+              ) : logs.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="py-6 text-center text-slate-400">
+                    ยังไม่มีข้อมูลจากอุปกรณ์
+                  </td>
+                </tr>
+              ) : (
+                logs.map((log) => (
+                  <tr key={log.id} className="border-b last:border-none">
+                    <td className="py-4">{log.created_at}</td>
+                    <td>{log.ec}</td>
+                    <td>{log.ph}</td>
+                    <td>{log.flow}</td>
+                    <td>{log.waterLevel}</td>
+                  </tr>
+                ))
               )}
-
-              {tasks.map((task) => (
-                <tr key={task.id} className="border-b">
-                  <td className="py-3">{task.date}</td>
-                  <td>{task.time}</td>
-                  <td>{task.name}</td>
-                  <td>{task.ecTarget}</td>
-                  <td>
-                    <span className="px-3 py-1 rounded-full bg-yellow-100 text-yellow-700 text-xs">
-                      {task.status.toUpperCase()}
-                    </span>
-                  </td>
-                  <td className="space-x-3">
-                    <button
-                      onClick={() => updateStatus(task.id, "running")}
-                      className="text-blue-500 text-xs"
-                    >
-                      RUN
-                    </button>
-                    <button
-                      onClick={() => updateStatus(task.id, "done")}
-                      className="text-emerald-500 text-xs"
-                    >
-                      DONE
-                    </button>
-                    <button
-                      onClick={() => deleteTask(task.id)}
-                      className="text-red-500 text-xs"
-                    >
-                      ลบ
-                    </button>
-                  </td>
-                </tr>
-              ))}
             </tbody>
           </table>
         </div>
-
-        {/* ================= MODAL ================= */}
-        {open && (
-          <div className="fixed inset-0 bg-black/30 flex items-center justify-center">
-            <div className="bg-white rounded-[28px] w-full max-w-[560px] px-10 py-9 animate-popIn shadow-[0_25px_70px_rgba(0,0,0,0.15)]">
-              <h3 className="text-center font-semibold text-[22px] text-[#1E2A69] mb-8">
-                เพิ่มงานใหม่ (Manual Add)
-              </h3>
-          <div className="grid grid-cols-2 gap-5 mb-5">
-            <div>
-              <label className="text-sm font-medium text-[#1E2A69] block mb-2">
-                วันที่
-              </label>
-              <input
-                type="date"
-                value={form.date}
-                onChange={(e) => setForm({ ...form, date: e.target.value })}
-                className="w-full h-[52px] px-4 rounded-xl border border-[#E3E8F2]
-                bg-[#F7F9FC] text-slate-700
-                focus:outline-none focus:ring-2 focus:ring-emerald-400"
-              />
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-[#1E2A69] block mb-2">
-                เวลา
-              </label>
-              <input
-                type="time"
-                value={form.time}
-                onChange={(e) => setForm({ ...form, time: e.target.value })}
-                className="w-full h-[52px] px-4 rounded-xl border border-[#E3E8F2]
-                bg-[#F7F9FC]
-                focus:outline-none focus:ring-2 focus:ring-emerald-400"
-              />
-            </div>
-          </div>
-            <div className="mb-5">
-              <label className="text-sm font-medium text-[#1E2A69] block mb-2">
-                ชื่องาน
-              </label>
-              <input
-                placeholder="เช่น รดน้ำรอบพิเศษ"
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                className="w-full h-[52px] px-4 rounded-xl border border-[#E3E8F2]
-                bg-[#F7F9FC]
-                focus:outline-none focus:ring-2 focus:ring-emerald-400"
-              />
-            </div>
-
-          <div className="grid grid-cols-2 gap-5 mb-8">
-            <div>
-              <label className="text-sm font-medium text-[#1E2A69] block mb-2">
-                Target EC
-              </label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={form.ec}
-                  onChange={(e) => setForm({ ...form, ec: +e.target.value })}
-                  className="w-full h-[52px] px-4 rounded-xl border border-[#E3E8F2]
-                  bg-[#F7F9FC]
-                  focus:outline-none focus:ring-2 focus:ring-emerald-400"
-                  />
-                </div>
-
-              <div>
-                <label className="text-sm font-medium text-[#1E2A69] block mb-2">
-                  Target pH
-                </label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={form.ph}
-                  onChange={(e) => setForm({ ...form, ph: +e.target.value })}
-                  className="w-full h-[52px] px-4 rounded-xl border border-[#E3E8F2]
-                  bg-[#F7F9FC]
-                  focus:outline-none focus:ring-2 focus:ring-emerald-400"
-                />
-              </div>
-          </div>
-
-              <div className="flex gap-4">
-                <button
-                  onClick={() => setOpen(false)}
-                  className="flex-1 h-[54px] rounded-xl bg-[#EEF1F7]
-                  text-slate-500 font-medium
-                  hover:bg-slate-200 transition
-                  hover:scale-[1.02] hover:shadow-lg"
-                >
-                  ยกเลิก
-                </button>
-
-                <button
-                  onClick={addTask}
-                  className="flex-1 h-[54px] rounded-xl text-white font-medium
-                  bg-gradient-to-r from-[#59C173] to-[#2D9B73]
-                  hover:scale-[1.02] hover:shadow-lg
-                  transition-all duration-200"
-                >
-                  เพิ่มงาน
-                </button>
-              </div>
-            </div>
-          </div>
-          
-        )}
       </main>
     </div>
   );
 }
 
-/* ================= SIDEBAR ================= */
-function SidebarItem({ label, icon, href, active = false }: any) {
+/* ===================== SIDEBAR ===================== */
+function SidebarItem({
+  label,
+  icon,
+  href,
+  active = false,
+}: {
+  label: string;
+  icon: React.ReactNode;
+  href: string;
+  active?: boolean;
+}) {
   const router = useRouter();
+
   return (
     <button
       onClick={() => router.push(href)}
-      className={`flex items-center gap-3 w-full px-5 py-4 rounded-xl ${
+      className={`flex items-center gap-3 w-full px-5 py-4 rounded-xl text-[16px] font-medium transition ${
         active ? "bg-[#05CD99] text-white" : "text-slate-500 hover:bg-slate-100"
       }`}
     >
