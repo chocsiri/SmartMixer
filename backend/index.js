@@ -285,4 +285,10 @@ const PORT = 5000;
 server.listen(PORT, () => {
   console.log(`🚀 Backend running on port ${PORT}`);
 });
-TEST PUSH 2026
+
+// ===== DELETE ALL TASK =====
+app.delete("/api/main-process/:id", (req, res) => {
+  tasks = []; // เคลียร์ array ใน memory
+  console.log("🗑 Clear all tasks");
+  res.json({ success: true });
+});

@@ -491,11 +491,11 @@ const stopProcess = async () => {
             ■ หยุดฉุกเฉิน
           </button>
           <button
-onClick={async () => {
-  setIsRunning(true);
-  await startProcess();
-}}
-
+            onClick={async () => {
+              setIsRunning(true);
+              await startProcess();
+            }}
+            className="bg-emerald-500 text-white px-6 py-3 rounded-xl hover:bg-emerald-600 hover:shadow-md hover:-translate-y-1 transition duration-300"
           >
             ▶ เริ่มทำงาน
           </button>
@@ -719,7 +719,7 @@ function Tank({
 function Modal({ title, desc, onConfirm, onCancel }: any) {
   return (
     <div className="fixed inset-0 bg-black/30 flex items-center justify-center">
-      <div className="bg-white rounded-xl p-6 w-[500px] h-[400px] p-[40px] animate-popIn shadow-[0_20px_60px_rgba(0,0,0,0.2)] text-center">
+      <div className="bg-white rounded-xl w-[500px] h-[400px] p-[40px] animate-popIn shadow-[0_20px_60px_rgba(0,0,0,0.2)] text-center">
         <h3 className="font-bold mb-2 text-3xl">{title}</h3>
         <p className="text-slate-500 mb-4 text-xm">{desc}</p>
         <div className="flex gap-3">
